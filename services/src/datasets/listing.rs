@@ -14,6 +14,7 @@ use geoengine_operators::engine::{
 };
 use geoengine_operators::mock::MockDatasetDataSourceLoadingInfo;
 use geoengine_operators::source::{GdalLoadingInfo, OgrSourceDataset};
+use paperclip::actix::Apiv2Schema;
 use serde::{Deserialize, Serialize};
 use snafu::ensure;
 
@@ -132,13 +133,13 @@ pub trait ExternalDatasetProvider: Send
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Apiv2Schema)]
 pub struct ProvenanceOutput {
     pub dataset: DatasetId,
     pub provenance: Option<Provenance>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Apiv2Schema)]
 pub struct Provenance {
     pub citation: String,
     pub license: String,

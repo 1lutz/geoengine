@@ -1,4 +1,5 @@
 use crate::identifier;
+use paperclip::actix::Apiv2Schema;
 use serde::{Deserialize, Serialize};
 
 identifier!(DatasetProviderId);
@@ -7,7 +8,7 @@ identifier!(InternalDatasetId);
 
 identifier!(StagingDatasetId);
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Deserialize, Serialize, Apiv2Schema)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum DatasetId {
     #[serde(rename_all = "camelCase")]

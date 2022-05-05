@@ -1,3 +1,4 @@
+use paperclip::actix::Apiv2Schema;
 use serde::{Deserialize, Serialize};
 
 use crate::error;
@@ -162,7 +163,7 @@ impl InitializedPlotOperator for Box<dyn InitializedPlotOperator> {
 }
 
 /// An enum to differentiate between `Operator` variants
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Apiv2Schema)]
 #[serde(tag = "type", content = "operator")]
 pub enum TypedOperator {
     Vector(Box<dyn VectorOperator>),

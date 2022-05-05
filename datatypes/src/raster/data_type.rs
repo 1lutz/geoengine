@@ -2,6 +2,7 @@ use crate::error;
 use crate::operations::image::RgbaTransmutable;
 use crate::raster::TypedRasterConversion;
 use num_traits::{AsPrimitive, Bounded, Num};
+use paperclip::actix::Apiv2Schema;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 
@@ -74,7 +75,9 @@ impl Pixel for i64 {}
 impl Pixel for f32 {}
 impl Pixel for f64 {}
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize, Copy, Clone)]
+#[derive(
+    Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize, Copy, Clone, Apiv2Schema,
+)]
 pub enum RasterDataType {
     U8,
     U16,

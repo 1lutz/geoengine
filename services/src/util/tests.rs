@@ -205,7 +205,7 @@ pub async fn send_test_request<C: SimpleContext>(
             .configure(handlers::wcs::init_wcs_routes::<C>)
             .configure(handlers::wfs::init_wfs_routes::<C>)
             .configure(handlers::wms::init_wms_routes::<C>)
-            .configure(handlers::workflows::init_workflow_routes::<C>),
+            //.configure(handlers::workflows::init_workflow_routes::<C>),
     )
     .await;
     test::call_service(&app, req.to_request())

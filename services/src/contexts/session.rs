@@ -11,6 +11,7 @@ use futures::future::{err, LocalBoxFuture};
 use futures_util::FutureExt;
 use geoengine_datatypes::identifier;
 use geoengine_datatypes::util::Identifier;
+use paperclip::actix::Apiv2Security;
 use serde::{Deserialize, Serialize};
 
 identifier!(SessionId);
@@ -27,7 +28,13 @@ pub trait MockableSession: Session {
     fn mock() -> Self;
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Apiv2Security)]
+#[openapi(
+    apiKey,
+    in = "header",
+    name = "Authorization",
+    description = "Use format 'Bearer TOKEN'"
+)]
 pub struct SimpleSession {
     id: SessionId,
     pub project: Option<ProjectId>,

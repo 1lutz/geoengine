@@ -1,9 +1,10 @@
+use paperclip::actix::Apiv2Schema;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::str::FromStr;
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, Apiv2Schema)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum Measurement {
     Unitless,

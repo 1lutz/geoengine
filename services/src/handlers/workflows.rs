@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::datasets::listing::DatasetProvider;
+use crate::datasets::listing::{DatasetProvider, ProvenanceOutput};
 use crate::datasets::storage::{AddDataset, DatasetDefinition, DatasetStore, MetaDataDefinition};
 use crate::datasets::upload::{UploadId, UploadRootPath};
 use crate::error;
@@ -11,7 +11,7 @@ use crate::util::user_input::UserInput;
 use crate::util::IdResponse;
 use crate::workflows::registry::WorkflowRegistry;
 use crate::workflows::workflow::{Workflow, WorkflowId};
-use actix_web::{web, FromRequest, Responder};
+use actix_web::FromRequest;
 use futures::future::join_all;
 use geoengine_datatypes::dataset::{DatasetId, InternalDatasetId};
 use geoengine_datatypes::primitives::{AxisAlignedRectangle, RasterQueryRectangle};
@@ -25,6 +25,7 @@ use geoengine_operators::util::raster_stream_to_geotiff::{
     raster_stream_to_geotiff, GdalGeoTiffDatasetMetadata, GdalGeoTiffOptions,
 };
 use geoengine_operators::{call_on_generic_raster_processor_gdal_types, call_on_typed_operator};
+use paperclip::actix::{api_v2_operation, web, Apiv2Schema};
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 use tokio::fs;
@@ -80,11 +81,12 @@ where
 ///   "id": "cee25e8c-18a0-5f1b-a504-0bc30de21e06"
 /// }
 /// ```
+#[api_v2_operation]
 async fn register_workflow_handler<C: Context>(
     session: C::Session,
     ctx: web::Data<C>,
     workflow: web::Json<Workflow>,
-) -> Result<impl Responder> {
+) -> Result<web::Json<IdResponse<WorkflowId>>> {
     let workflow = workflow.into_inner();
 
     // ensure the workflow is valid by initializing it
@@ -144,11 +146,12 @@ async fn register_workflow_handler<C: Context>(
 ///   }
 /// }
 /// ```
+#[api_v2_operation]
 async fn load_workflow_handler<C: Context>(
     id: web::Path<WorkflowId>,
     _session: C::Session,
     ctx: web::Data<C>,
-) -> Result<impl Responder> {
+) -> Result<web::Json<Workflow>> {
     let wf = ctx
         .workflow_registry_ref()
         .await
@@ -173,11 +176,12 @@ async fn load_workflow_handler<C: Context>(
 ///   "columns": {}
 /// }
 /// ```
+#[api_v2_operation]
 async fn get_workflow_metadata_handler<C: Context>(
     id: web::Path<WorkflowId>,
     session: C::Session,
     ctx: web::Data<C>,
-) -> Result<impl Responder> {
+) -> Result<web::Json<TypedResultDescriptor>> {
     let workflow = ctx
         .workflow_registry_ref()
         .await
@@ -230,11 +234,12 @@ async fn get_workflow_metadata_handler<C: Context>(
 ///   "uri": "http://example.org/"
 /// }]
 /// ```
+#[api_v2_operation]
 async fn get_workflow_provenance_handler<C: Context>(
     id: web::Path<WorkflowId>,
     session: C::Session,
     ctx: web::Data<C>,
-) -> Result<impl Responder> {
+) -> Result<web::Json<Vec<ProvenanceOutput>>> {
     let workflow = ctx
         .workflow_registry_ref()
         .await
@@ -259,7 +264,7 @@ async fn get_workflow_provenance_handler<C: Context>(
 }
 
 /// parameter for the dataset from workflow handler (body)
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Apiv2Schema)]
 struct RasterDatasetFromWorkflow {
     name: String,
     description: Option<String>,
@@ -275,7 +280,7 @@ const fn default_as_cog() -> bool {
 }
 
 /// response of the dataset from workflow handler
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Apiv2Schema)]
 struct RasterDatasetFromWorkflowResult {
     dataset: DatasetId,
     upload: UploadId,
@@ -325,12 +330,13 @@ struct RasterDatasetFromWorkflowResult {
 ///   }
 /// }
 /// ```
+#[api_v2_operation]
 async fn dataset_from_workflow_handler<C: Context>(
     workflow_id: web::Path<WorkflowId>,
     session: C::Session,
     ctx: web::Data<C>,
     info: web::Json<RasterDatasetFromWorkflow>,
-) -> Result<impl Responder> {
+) -> Result<web::Json<RasterDatasetFromWorkflowResult>> {
     // TODO: support datasets with multiple time steps
 
     let workflow = ctx.workflow_registry_ref().await.load(&workflow_id).await?;

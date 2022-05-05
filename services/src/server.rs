@@ -11,8 +11,9 @@ use actix_http::uri::PathAndQuery;
 use actix_http::HttpMessage;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::error::{InternalError, JsonPayloadError, QueryPayloadError};
-use actix_web::{http, middleware, web, App, HttpResponse, HttpServer};
+use actix_web::{http, middleware, App, HttpResponse, HttpServer};
 use log::{debug, info};
+use paperclip::actix::{api_v2_operation, web, Apiv2Schema, OpenApiExt};
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -99,15 +100,16 @@ where
             .wrap(TracingLogger::<CustomRootSpanBuilder>::new())
             .wrap(middleware::NormalizePath::trim())
             .configure(configure_extractors)
-            .configure(handlers::datasets::init_dataset_routes::<C>)
-            .configure(handlers::plots::init_plot_routes::<C>)
-            .configure(handlers::projects::init_project_routes::<C>)
-            .configure(handlers::session::init_session_routes::<C>)
-            .configure(handlers::spatial_references::init_spatial_reference_routes::<C>)
-            .configure(handlers::upload::init_upload_routes::<C>)
-            .configure(handlers::wcs::init_wcs_routes::<C>)
-            .configure(handlers::wfs::init_wfs_routes::<C>)
-            .configure(handlers::wms::init_wms_routes::<C>)
+            .wrap_api()
+            //.configure(handlers::datasets::init_dataset_routes::<C>)
+            //.configure(handlers::plots::init_plot_routes::<C>)
+            //.configure(handlers::projects::init_project_routes::<C>)
+            //.configure(handlers::session::init_session_routes::<C>)
+            //.configure(handlers::spatial_references::init_spatial_reference_routes::<C>)
+            //.configure(handlers::upload::init_upload_routes::<C>)
+            //.configure(handlers::wcs::init_wcs_routes::<C>)
+            //.configure(handlers::wfs::init_wfs_routes::<C>)
+            //.configure(handlers::wms::init_wms_routes::<C>)
             .configure(handlers::workflows::init_workflow_routes::<C>);
 
         #[cfg(feature = "ebv")]
@@ -124,10 +126,11 @@ where
             app = app.route("/version", web::get().to(show_version_handler));
         }
         if let Some(static_files_dir) = static_files_dir.clone() {
-            app.service(Files::new("/static", static_files_dir))
-        } else {
-            app
+            app = app.service(Files::new("/static", static_files_dir))
         }
+        app.with_json_spec_at("/api/spec/v2")
+            .with_json_spec_v3_at("/api/spec/v3")
+            .build()
     })
     .worker_max_blocking_threads(calculate_max_blocking_threads_per_worker())
     .bind(bind_address)?
@@ -196,7 +199,7 @@ pub(crate) fn calculate_max_blocking_threads_per_worker() -> usize {
     std::cmp::max(max_blocking_threads, MIN_BLOCKING_THREADS_PER_WORKER)
 }
 
-pub(crate) fn configure_extractors(cfg: &mut web::ServiceConfig) {
+pub(crate) fn configure_extractors(cfg: &mut actix_web::web::ServiceConfig) {
     cfg.app_data(web::JsonConfig::default().error_handler(|err, _req| {
         match err {
             JsonPayloadError::ContentType => InternalError::from_response(
@@ -272,6 +275,13 @@ pub(crate) fn configure_extractors(cfg: &mut web::ServiceConfig) {
     }));
 }
 
+#[derive(serde::Serialize, Apiv2Schema)]
+#[serde(rename_all = "camelCase")]
+struct VersionInfo<'a> {
+    build_date: Option<&'a str>,
+    commit_hash: Option<&'a str>,
+}
+
 /// Shows information about the server software version.
 ///
 /// # Example
@@ -287,14 +297,9 @@ pub(crate) fn configure_extractors(cfg: &mut web::ServiceConfig) {
 /// }
 /// ```
 #[allow(clippy::unused_async)] // the function signature of request handlers requires it
-pub(crate) async fn show_version_handler() -> impl actix_web::Responder {
-    #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct VersionInfo<'a> {
-        build_date: Option<&'a str>,
-        commit_hash: Option<&'a str>,
-    }
-    web::Json(&VersionInfo {
+#[api_v2_operation]
+pub(crate) async fn show_version_handler() -> web::Json<VersionInfo<'static>> {
+    web::Json(VersionInfo {
         build_date: option_env!("VERGEN_BUILD_DATE"),
         commit_hash: option_env!("VERGEN_GIT_SHA"),
     })

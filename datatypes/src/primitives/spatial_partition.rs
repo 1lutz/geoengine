@@ -1,3 +1,4 @@
+use paperclip::actix::Apiv2Schema;
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 
@@ -31,7 +32,7 @@ pub trait AxisAlignedRectangle: Copy {
 }
 
 /// A partition of space that include the upper left but excludes the lower right coordinate
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug, Apiv2Schema)]
 #[serde(rename_all = "camelCase")]
 pub struct SpatialPartition2D {
     upper_left_coordinate: Coordinate2D,

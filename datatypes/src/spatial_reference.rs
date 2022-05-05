@@ -5,6 +5,7 @@ use crate::{
     util::Result,
 };
 use gdal::spatial_ref::SpatialRef;
+use paperclip::actix::Apiv2Schema;
 #[cfg(feature = "postgres")]
 use postgres_types::private::BytesMut;
 #[cfg(feature = "postgres")]
@@ -224,7 +225,7 @@ impl TryFrom<SpatialReference> for SpatialRef {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Apiv2Schema)]
 pub enum SpatialReferenceOption {
     SpatialReference(SpatialReference),
     Unreferenced,

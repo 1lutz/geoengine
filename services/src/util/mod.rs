@@ -1,6 +1,7 @@
 use serde::de::Error;
 use serde::{Deserialize, Serialize};
 
+use paperclip::actix::Apiv2Schema;
 use std::str::FromStr;
 
 pub use geoengine_datatypes::util::Identifier;
@@ -12,7 +13,7 @@ pub mod retry;
 pub mod tests;
 pub mod user_input;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Apiv2Schema)]
 pub struct IdResponse<T> {
     pub id: T,
 }

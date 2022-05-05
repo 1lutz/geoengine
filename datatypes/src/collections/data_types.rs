@@ -1,5 +1,6 @@
 use crate::error;
 use gdal::vector::OGRwkbGeometryType;
+use paperclip::actix::Apiv2Schema;
 use std::collections::hash_map::Keys;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
@@ -19,7 +20,9 @@ use crate::primitives::{
 use crate::util::Result;
 
 /// An enum that contains all possible vector data types
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize, Copy, Clone)]
+#[derive(
+    Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize, Copy, Clone, Apiv2Schema,
+)]
 pub enum VectorDataType {
     Data,
     MultiPoint,

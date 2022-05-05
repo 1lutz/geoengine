@@ -3,6 +3,7 @@ use geoengine_datatypes::raster::FromPrimitive;
 use geoengine_datatypes::{
     collections::VectorDataType, raster::RasterDataType, spatial_reference::SpatialReferenceOption,
 };
+use paperclip::actix::Apiv2Schema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -40,7 +41,7 @@ pub trait ResultDescriptor: Clone + Serialize {
 }
 
 /// A `ResultDescriptor` for raster queries
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Apiv2Schema)]
 #[serde(rename_all = "camelCase")]
 pub struct RasterResultDescriptor {
     pub data_type: RasterDataType,
@@ -90,7 +91,7 @@ impl RasterResultDescriptor {
 }
 
 /// A `ResultDescriptor` for vector queries
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Apiv2Schema)]
 #[serde(rename_all = "camelCase")]
 pub struct VectorResultDescriptor {
     pub data_type: VectorDataType,
@@ -148,7 +149,9 @@ impl ResultDescriptor for VectorResultDescriptor {
 }
 
 /// A `ResultDescriptor` for plot queries
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize, Apiv2Schema,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct PlotResultDescriptor {
     pub spatial_reference: SpatialReferenceOption,
@@ -177,7 +180,7 @@ impl ResultDescriptor for PlotResultDescriptor {
         *self
     }
 }
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Apiv2Schema)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum TypedResultDescriptor {
     Plot(PlotResultDescriptor),

@@ -3,6 +3,7 @@ use arrow::array::{ArrayBuilder, BooleanArray, Float64Builder};
 use arrow::datatypes::{DataType, Field};
 use arrow::error::ArrowError;
 use float_cmp::ApproxEq;
+use paperclip::actix::Apiv2Schema;
 #[cfg(feature = "postgres")]
 use postgres_types::{FromSql, ToSql};
 use proj::Coord;
@@ -13,7 +14,9 @@ use std::{
     slice,
 };
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, PartialOrd, Serialize, Default)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, PartialEq, PartialOrd, Serialize, Default, Apiv2Schema,
+)]
 #[cfg_attr(feature = "postgres", derive(ToSql, FromSql))]
 #[repr(C)]
 pub struct Coordinate2D {

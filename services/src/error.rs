@@ -6,6 +6,7 @@ use geoengine_datatypes::{
     dataset::{DatasetId, DatasetProviderId},
     spatial_reference::SpatialReferenceOption,
 };
+use paperclip::actix::api_v2_errors;
 use snafu::{prelude::*, AsErrorSource};
 use strum::IntoStaticStr;
 use tonic::Status;
@@ -15,6 +16,14 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[derive(Debug, Snafu, IntoStaticStr)]
 #[snafu(visibility(pub(crate)))]
 #[snafu(context(suffix(false)))] // disables default `Snafu` suffix
+#[api_v2_errors(
+    code = 400,
+    description = "Bad Request",
+    code = 401,
+    description = "Authorization error",
+    code = 409,
+    description = "Tried to create duplicate"
+)]
 pub enum Error {
     DataType {
         source: geoengine_datatypes::error::Error,

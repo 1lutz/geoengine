@@ -1,6 +1,7 @@
 use crate::primitives::error;
 use crate::util::Result;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use paperclip::actix::Apiv2Schema;
 #[cfg(feature = "postgres")]
 use postgres_types::private::BytesMut;
 #[cfg(feature = "postgres")]
@@ -16,7 +17,7 @@ use std::{
     str::FromStr,
 };
 
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, Debug, Apiv2Schema)]
 #[repr(C)]
 pub struct TimeInstance(i64);
 

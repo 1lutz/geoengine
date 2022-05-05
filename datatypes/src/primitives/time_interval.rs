@@ -5,6 +5,7 @@ use crate::{error, util::ranges::value_in_range};
 use arrow::array::{Array, ArrayBuilder, BooleanArray};
 use arrow::datatypes::{DataType, Field};
 use arrow::error::ArrowError;
+use paperclip::actix::Apiv2Schema;
 #[cfg(feature = "postgres")]
 use postgres_types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
@@ -13,7 +14,7 @@ use std::fmt::{Debug, Display};
 use std::{cmp::Ordering, convert::TryInto};
 
 /// Stores time intervals in ms in close-open semantic [start, end)
-#[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Apiv2Schema)]
 #[cfg_attr(feature = "postgres", derive(ToSql, FromSql))]
 #[repr(C)]
 pub struct TimeInterval {

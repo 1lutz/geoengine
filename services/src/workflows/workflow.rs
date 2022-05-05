@@ -1,3 +1,4 @@
+use paperclip::actix::Apiv2Schema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -17,7 +18,7 @@ impl WorkflowId {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Apiv2Schema)]
 pub struct Workflow {
     #[serde(flatten)]
     pub operator: TypedOperator,

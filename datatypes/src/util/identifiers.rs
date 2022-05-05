@@ -6,7 +6,17 @@ pub trait Identifier: Sized {
 #[macro_export]
 macro_rules! identifier {
     ($id_name: ident) => {
-        #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Clone, Copy, Hash)]
+        #[derive(
+            Debug,
+            PartialEq,
+            Eq,
+            serde::Serialize,
+            serde::Deserialize,
+            Clone,
+            Copy,
+            Hash,
+            paperclip::actix::Apiv2Schema,
+        )]
         pub struct $id_name(pub uuid::Uuid);
 
         impl $id_name {

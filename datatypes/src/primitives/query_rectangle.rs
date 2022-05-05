@@ -2,10 +2,11 @@ use super::{
     AxisAlignedRectangle, BoundingBox2D, SpatialPartition2D, SpatialPartitioned, SpatialResolution,
     TimeInterval,
 };
+use paperclip::actix::Apiv2Schema;
 use serde::{Deserialize, Serialize};
 
 /// A spatio-temporal rectangle with a specified resolution
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize, Apiv2Schema)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryRectangle<SpatialBounds: AxisAlignedRectangle> {
     pub spatial_bounds: SpatialBounds,
