@@ -89,7 +89,6 @@ where
     let wrapped_ctx = web::Data::new(ctx);
 
     HttpServer::new(move || {
-        #[allow(unused_mut)]
         let mut app = App::new()
             .app_data(wrapped_ctx.clone())
             .wrap(
@@ -99,7 +98,12 @@ where
             )
             .wrap(TracingLogger::<CustomRootSpanBuilder>::new())
             .wrap(middleware::NormalizePath::trim())
-            .configure(configure_extractors)
+            .configure(configure_extractors);
+
+        if let Some(static_files_dir) = static_files_dir.clone() {
+            app = app.service(Files::new("/static", static_files_dir))
+        }
+        let mut app = app
             .wrap_api()
             //.configure(handlers::datasets::init_dataset_routes::<C>)
             //.configure(handlers::plots::init_plot_routes::<C>)
@@ -125,11 +129,9 @@ where
         if version_api {
             app = app.route("/version", web::get().to(show_version_handler));
         }
-        if let Some(static_files_dir) = static_files_dir.clone() {
-            app = app.service(Files::new("/static", static_files_dir))
-        }
         app.with_json_spec_at("/api/spec/v2")
             .with_json_spec_v3_at("/api/spec/v3")
+            .with_swagger_ui_at("/swagger-ui")
             .build()
     })
     .worker_max_blocking_threads(calculate_max_blocking_threads_per_worker())
@@ -277,7 +279,7 @@ pub(crate) fn configure_extractors(cfg: &mut actix_web::web::ServiceConfig) {
 
 #[derive(serde::Serialize, Apiv2Schema)]
 #[serde(rename_all = "camelCase")]
-struct VersionInfo<'a> {
+pub(crate) struct VersionInfo<'a> {
     build_date: Option<&'a str>,
     commit_hash: Option<&'a str>,
 }
