@@ -634,11 +634,101 @@ CREATE TABLE collection_children (
     PRIMARY KEY (parent, child)
 );
 
+CREATE TYPE "ArunaDataProviderDefinition" AS (
+    id uuid,
+    "name" text,
+    api_url text,
+    project_id text,
+    api_token text,
+    filter_label text,
+    cache_ttl int
+);
+
+CREATE TYPE "DatabaseConnectionConfig" AS (
+    host text,
+    port int,
+    "database" text,
+    schema text,
+    "user" text,
+    "password" text
+);
+
+CREATE TYPE "GbifDataProviderDefinition" AS (
+    "name" text,
+    db_config "DatabaseConnectionConfig",
+    cache_ttl int
+);
+
+CREATE TYPE "GfbioAbcdDataProviderDefinition" AS (
+    "name" text,
+    db_config "DatabaseConnectionConfig",
+    cache_ttl int
+);
+
+CREATE TYPE "GfbioCollectionsDataProviderDefinition" AS (
+    "name" text,
+    collection_api_url text,
+    collection_api_auth_token text,
+    abcd_db_config "DatabaseConnectionConfig",
+    pangaea_url text,
+    cache_ttl int
+);
+
+CREATE TYPE "EbvPortalDataProviderDefinition" AS (
+    "name" text,
+    "path" text,
+    base_url text,
+    overviews text,
+    cache_ttl int
+);
+
+CREATE TYPE "NetCdfCfDataProviderDefinition" AS (
+    "name" text,
+    "path" text,
+    overviews text,
+    cache_ttl int
+);
+
+CREATE TYPE "PangaeaDataProviderDefinition" AS (
+    "name" text,
+    base_url text,
+    cache_ttl int
+);
+
+CREATE TYPE "EdrVectorSpec" AS (
+    x text,
+    y text,
+    "time" text
+);
+
+CREATE TYPE "EdrDataProviderDefinition" AS (
+    "name" text,
+    id uuid,
+    base_url text,
+    vector_spec "EdrVectorSpec",
+    cache_ttl int,
+    discrete_vrs text [],
+    provenance "Provenance" []
+);
+
+CREATE TYPE "DataProviderDefinition" AS (
+    -- one of
+    aruna_data_provider_definition "ArunaDataProviderDefinition",
+    gbif_data_provider_definition "GbifDataProviderDefinition",
+    gfbio_abcd_data_provider_definition "GfbioAbcdDataProviderDefinition",
+    gfbio_collections_data_provider_definition
+    "GfbioCollectionsDataProviderDefinition",
+    ebv_portal_data_provider_definition "EbvPortalDataProviderDefinition",
+    net_cdf_cf_data_provider_definition "NetCdfCfDataProviderDefinition",
+    pangaea_data_provider_definition "PangaeaDataProviderDefinition",
+    edr_data_provider_definition "EdrDataProviderDefinition"
+);
+
 CREATE TABLE layer_providers (
     id uuid PRIMARY KEY,
     type_name text NOT NULL,
     name text NOT NULL,
-    definition json NOT NULL
+    definition "DataProviderDefinition" NOT NULL
 );
 
 -- TODO: relationship between uploads and datasets?
