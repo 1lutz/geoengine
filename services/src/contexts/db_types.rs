@@ -563,7 +563,8 @@ impl TryFrom<PangaeaDataProviderDefinitionDbType> for PangaeaDataProviderDefinit
 pub struct EdrVectorSpecDbType {
     x: String,
     y: Option<String>,
-    time: String,
+    start_time: String,
+    end_time: Option<String>,
 }
 
 impl From<&EdrVectorSpec> for EdrVectorSpecDbType {
@@ -571,7 +572,8 @@ impl From<&EdrVectorSpec> for EdrVectorSpecDbType {
         Self {
             x: other.x.clone(),
             y: other.y.clone(),
-            time: other.time.clone(),
+            start_time: other.start_time.clone(),
+            end_time: other.end_time.clone(),
         }
     }
 }
@@ -583,7 +585,8 @@ impl TryFrom<EdrVectorSpecDbType> for EdrVectorSpec {
         Ok(Self {
             x: other.x,
             y: other.y,
-            time: other.time,
+            start_time: other.start_time,
+            end_time: other.end_time,
         })
     }
 }

@@ -20,3 +20,4 @@ services/test_upload/
 geo_engine_*.log
 **/**.aux.xml
 test_data/netcdf4d/overviews/*
+test_data/provider_defs/chronicledb.json
