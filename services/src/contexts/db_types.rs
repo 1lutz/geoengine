@@ -563,7 +563,7 @@ impl TryFrom<PangaeaDataProviderDefinitionDbType> for PangaeaDataProviderDefinit
 pub struct EdrVectorSpecDbType {
     x: String,
     y: Option<String>,
-    start_time: String,
+    start_time: Option<String>,
     end_time: Option<String>,
 }
 

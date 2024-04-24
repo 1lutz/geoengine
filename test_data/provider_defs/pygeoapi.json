@@ -1,0 +1,12 @@
+{
+  "type": "EdrDataProviderDefinition",
+  "id": "d6e3fe62-00eb-4bc8-98da-c47178269e59",
+  "name": "pygeoapi Stable",
+  "baseUrl": "https://demo.pygeoapi.io/stable",
+  "vectorSpec": {
+    "x": "geometry",
+    "y": null,
+    "start_time": null,
+    "end_time": null
+  }
+}

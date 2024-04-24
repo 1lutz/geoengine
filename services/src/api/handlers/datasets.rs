@@ -1125,7 +1125,7 @@ fn detect_time_type(columns: &Columns) -> OgrSourceDatasetTimeType {
     }
 }
 
-pub fn detect_vector_geometry(layer: &Layer) -> DetectedGeometry {
+fn detect_vector_geometry(layer: &Layer) -> DetectedGeometry {
     for g in layer.defn().geom_fields() {
         if let Ok(data_type) = VectorDataType::try_from_ogr_type_code(g.field_type()) {
             return DetectedGeometry {
@@ -1158,9 +1158,9 @@ struct GdalAutoDetect {
     y: Option<String>,
 }
 
-pub struct DetectedGeometry {
+struct DetectedGeometry {
     layer_name: Option<String>,
-    pub data_type: VectorDataType,
+    data_type: VectorDataType,
     spatial_reference: SpatialReferenceOption,
 }
 
