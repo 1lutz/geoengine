@@ -76,7 +76,7 @@ pub enum Error {
         found: usize,
     },
 
-    #[snafu(display("InvalidNumberOfVectorInputsError: expected \"[{} .. {}]\" found \"{}\"", expected.start, expected.end, found))]
+    #[snafu(display("InvalidNumberOfInputsError: expected \"[{} .. {}]\" found \"{}\"", expected.start, expected.end, found))]
     InvalidNumberOfInputs {
         expected: Range<usize>,
         found: usize,

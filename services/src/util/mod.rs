@@ -9,7 +9,6 @@ pub mod apidoc;
 pub mod config;
 pub mod extractors;
 pub mod identifiers;
-pub mod metadata;
 pub mod openapi_examples;
 pub mod operators;
 pub mod parsing;

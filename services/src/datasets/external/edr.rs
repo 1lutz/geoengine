@@ -9,16 +9,15 @@ use crate::layers::layer::{
 use crate::layers::listing::{
     LayerCollectionId, LayerCollectionProvider, ProviderCapabilities, SearchCapabilities,
 };
-use crate::util::metadata::fetch_partial_metadata;
 use crate::util::parsing::deserialize_base_url;
 use crate::workflows::workflow::Workflow;
 use async_trait::async_trait;
-use gdal::Dataset;
+use gdal::vector::LayerAccess;
 use geoengine_datatypes::collections::VectorDataType;
 use geoengine_datatypes::dataset::{DataId, DataProviderId, LayerId};
 use geoengine_datatypes::hashmap;
 use geoengine_datatypes::primitives::{
-    AxisAlignedRectangle, BoundingBox2D, CacheTtlSeconds, ColumnSelection, ContinuousMeasurement, Coordinate2D, FeatureDataType, Measurement, RasterQueryRectangle, SpatialPartition2D, SpatialResolution, TimeInstance, TimeInterval, VectorQueryRectangle
+    AxisAlignedRectangle, BandSelection, BoundingBox2D, CacheTtlSeconds, ContinuousMeasurement, Coordinate2D, FeatureDataType, Measurement, RasterQueryRectangle, SpatialPartition2D, SpatialResolution, TimeInstance, TimeInterval, VectorQueryRectangle
 };
 use geoengine_datatypes::raster::RasterDataType;
 use geoengine_datatypes::spatial_reference::SpatialReference;
@@ -28,10 +27,7 @@ use geoengine_operators::engine::{
 };
 use geoengine_operators::mock::MockDatasetDataSourceLoadingInfo;
 use geoengine_operators::source::{
-    FileNotFoundHandling, GdalDatasetParameters, GdalLoadingInfo, GdalLoadingInfoTemporalSlice,
-    GdalMetaDataList, GdalSource, GdalSourceParameters, OgrSource, OgrSourceColumnSpec,
-    OgrSourceDataset, OgrSourceDatasetTimeType, OgrSourceDurationSpec, OgrSourceErrorSpec,
-    OgrSourceParameters, OgrSourceTimeFormat,
+    FileNotFoundHandling, GdalDatasetGeoTransform, GdalDatasetParameters, GdalLoadingInfo, GdalLoadingInfoTemporalSlice, GdalLoadingInfoTemporalSliceIterator, GdalSource, GdalSourceParameters, OgrSource, OgrSourceColumnSpec, OgrSourceDataset, OgrSourceDatasetTimeType, OgrSourceDurationSpec, OgrSourceErrorSpec, OgrSourceParameters, OgrSourceTimeFormat
 };
 use geoengine_operators::util::gdal::gdal_open_dataset;
 use geoengine_operators::util::TemporaryGdalThreadLocalConfigOptions;
@@ -46,6 +42,8 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 use url::Url;
 
+const FALLBACK_FILETYPE: &'static str = "GeoJSON";
+
 static IS_FILETYPE_RASTER: OnceLock<HashMap<&'static str, bool>> = OnceLock::new();
 
 // TODO: change to `LazyLock' once stable
@@ -53,6 +51,7 @@ fn init_is_filetype_raster() -> HashMap<&'static str, bool> {
     //name:is_raster
     hashmap! {
         "GeoTIFF" => true,
+        "GeoTIFF_float" => true,
         "GeoJSON" => false
     }
 }
@@ -416,14 +415,61 @@ struct EdrCollectionMetaData {
     extent: EdrExtents,
     //for paging keys need to be returned in same order every time
     parameter_names: BTreeMap<String, EdrParameter>,
-    output_formats: Vec<String>,
-    //data_queries: EdrDataQueries,
+    output_formats: Option<Vec<String>>,
+    data_queries: Option<EdrQueryEndpoints>,
 }
 
-/*#[derive(Deserialize)]
-struct EdrDataQueries {
-    cube: Option<serde_json::Value>,
-}*/
+#[derive(Deserialize)]
+struct EdrQueryEndpoints {
+    cube: Option<EdrQueryEndpoint>,
+    items: Option<EdrQueryEndpoint>,
+}
+
+#[derive(Deserialize)]
+struct EdrQueryEndpoint {
+    link: EdrQueryEndpointLink,
+}
+
+#[derive(Deserialize)]
+struct EdrQueryEndpointLink {
+    variables: EdrQueryEndpointVariables,
+}
+
+#[derive(Deserialize)]
+struct EdrQueryEndpointVariables {
+    output_formats: Vec<String>,
+}
+
+struct DetectedRasterInfo {
+    data_type: RasterDataType,
+    geo_transform: GdalDatasetGeoTransform,
+    width: usize,
+    height: usize
+}
+
+impl DetectedRasterInfo {
+    fn new(collection: &EdrCollectionMetaData, template_url: &str) -> Result<DetectedRasterInfo, geoengine_operators::error::Error> {
+        let coords_ul = collection.get_bounding_box()?.upper_left();
+        let coords_lr = coords_ul + Coordinate2D::new(0.5, -0.5);
+        let time = collection.get_time_interval()?.start();
+        let query = RasterQueryRectangle {
+            spatial_bounds: SpatialPartition2D::new_unchecked(coords_ul, coords_lr),
+            time_interval: TimeInterval::new_unchecked(time, time),
+            spatial_resolution: SpatialResolution::new_unchecked(1., 1.),
+            attributes: BandSelection::first(),
+        };
+        let position_url = template_url.to_owned() + query.as_query_string().as_str();
+        let dataset = gdal_open_dataset(Path::new(&position_url))?;
+        let rasterband = dataset.rasterband(1)?;
+
+        Ok(Self {
+            data_type: RasterDataType::from_gdal_data_type(rasterband.band_type())?,
+            geo_transform: dataset.geo_transform()?.into(),
+            width: rasterband.x_size(),
+            height: rasterband.y_size(),
+        })
+    }
+}
 
 impl EdrCollectionMetaData {
     fn get_time_interval(&self) -> Result<TimeInterval, geoengine_operators::error::Error> {
@@ -452,8 +498,21 @@ impl EdrCollectionMetaData {
         ))
     }
 
-    fn select_output_format(&self) -> Result<String, geoengine_operators::error::Error> {
-        for format in &self.output_formats {
+    fn select_output_format(
+        &self,
+        endpoint_selector: fn(&EdrQueryEndpoints) -> Option<&EdrQueryEndpoint>,
+    ) -> Result<String, geoengine_operators::error::Error> {
+        let fallback_formats = vec![FALLBACK_FILETYPE.to_owned()];
+        let formats = self.data_queries.as_ref().and_then(endpoint_selector).map_or_else(
+            || {
+                self.output_formats
+                    .as_ref()
+                    .unwrap_or(&fallback_formats)
+            },
+            |endpoint| &endpoint.link.variables.output_formats,
+        );
+
+        for format in formats {
             if IS_FILETYPE_RASTER
                 .get_or_init(init_is_filetype_raster)
                 .contains_key(format.as_str())
@@ -469,7 +528,7 @@ impl EdrCollectionMetaData {
     fn is_raster_file(&self) -> Result<bool, geoengine_operators::error::Error> {
         Ok(*IS_FILETYPE_RASTER
             .get_or_init(init_is_filetype_raster)
-            .get(&self.select_output_format()?.as_str())
+            .get(&self.select_output_format(|queries| queries.cube.as_ref())?.as_str())
             .expect("can only return values in map"))
     }
 
@@ -486,14 +545,12 @@ impl EdrCollectionMetaData {
         } else {
             format!("&z={height}%2F{height}")
         };
+        let output_format = self.select_output_format(|queries| queries.cube.as_ref())?;
         let template_url = format!(
             "/vsicurl_streaming/{}collections/{}/cube?f={}{}",
-            base_url,
-            self.id,
-            self.select_output_format()?,
-            z
+            base_url, self.id, output_format, z
         );
-        let mut layer_name = format!("cube?f={}{}", self.select_output_format()?, z);
+        let mut layer_name = format!("cube?f={}{}", output_format, z);
         if let Some(last_dot_pos) = layer_name.rfind('.') {
             layer_name = layer_name[0..last_dot_pos].to_string();
         }
@@ -505,14 +562,8 @@ impl EdrCollectionMetaData {
         base_url: &Url,
         parameter_name: &str,
         height: &str,
-        time: &str,
         discrete_vrs: &[String],
     ) -> Result<String, geoengine_operators::error::Error> {
-        let spatial_extent = self.extent.spatial.as_ref().ok_or_else(|| {
-            geoengine_operators::error::Error::DatasetMetaData {
-                source: Box::new(EdrProviderError::MissingSpatialExtent),
-            }
-        })?;
         let z = if height == "default" {
             String::new()
         } else if self.extent.has_discrete_vertical_axis(discrete_vrs) {
@@ -520,19 +571,10 @@ impl EdrCollectionMetaData {
         } else {
             format!("&z={height}%2F{height}")
         };
+        let output_format = self.select_output_format(|queries| queries.cube.as_ref())?;
         Ok(format!(
-            "/vsicurl_streaming/{}collections/{}/cube?bbox={},{},{},{}{}&datetime={}%2F{}&f={}&parameter-name={}",
-            base_url,
-            self.id,
-            spatial_extent.bbox[0][0],
-            spatial_extent.bbox[0][1],
-            spatial_extent.bbox[0][2],
-            spatial_extent.bbox[0][3],
-            z,
-            time,
-            time,
-            self.select_output_format()?,
-            parameter_name
+            "/vsicurl_streaming/{}collections/{}/cube?f={}&parameter-name={}{}",
+            base_url, self.id, output_format, parameter_name, z
         ))
     }
 
@@ -540,32 +582,32 @@ impl EdrCollectionMetaData {
         &self,
         template_url: &str,
     ) -> Result<VectorDataType, geoengine_operators::error::Error> {
+        let slash_pos = template_url.rfind('/').expect("there must be a slash");
+        let path_without_endpoint = &template_url[0..slash_pos];
         let items_url = format!(
-            "{}&limit=1",
-            template_url.replacen("/cube?f=GeoJSON", "/items?", 1)
+            "{}/items?f={}&limit=1",
+            path_without_endpoint,
+            self.select_output_format(|queries| queries.items.as_ref())?
         );
+        let dataset = gdal_open_dataset(Path::new(&items_url))?;
+        let layer =
+            dataset
+                .layer(0)
+                .map_err(|err| geoengine_operators::error::Error::LoadingInfo {
+                    source: Box::new(err),
+                })?;
+        let geom_field = layer.defn().geom_fields().next();
 
-        if let Ok(meta) = fetch_partial_metadata(template_url.to_string(), &Path::new(&items_url)) {
-            return Ok(meta.data_type);
+        match geom_field {
+            None => Ok(VectorDataType::Data),
+            Some(geom_field) => VectorDataType::try_from_ogr_type_code(geom_field.field_type())
+                .map_err(|err| geoengine_operators::error::Error::DataType { source: err }),
         }
-
-        let query = VectorQueryRectangle {
-            spatial_bounds: self.get_bounding_box()?,
-            time_interval: self.get_time_interval()?,
-            spatial_resolution: SpatialResolution::zero_point_one(),
-            attributes: ColumnSelection::all(),
-        };
-        let cube_url = template_url.to_owned() + &query.as_query_string();
-        fetch_partial_metadata(template_url.to_string(), &Path::new(&cube_url))
-            .map(|meta| meta.data_type)
-            .map_err(|e| geoengine_operators::error::Error::LoadingInfo {
-                source: Box::new(e),
-            })
     }
 
     fn get_vector_result_descriptor(
         &self,
-        template_url: &str,
+        data_type: VectorDataType,
     ) -> Result<VectorResultDescriptor, geoengine_operators::error::Error> {
         let column_map: HashMap<String, VectorColumnInfo> = self
             .parameter_names
@@ -610,7 +652,7 @@ impl EdrCollectionMetaData {
 
         Ok(VectorResultDescriptor {
             spatial_reference: SpatialReference::epsg_4326().into(),
-            data_type: self.determine_vector_data_type(template_url)?,
+            data_type,
             columns: column_map,
             time: Some(self.get_time_interval()?),
             bbox: Some(self.get_bounding_box()?),
@@ -661,7 +703,8 @@ impl EdrCollectionMetaData {
         layer_name: &str,
         vector_spec: EdrVectorSpec,
         cache_ttl: CacheTtlSeconds,
-    ) -> OgrSourceDataset {
+        data_type: VectorDataType,
+    ) -> Result<OgrSourceDataset, geoengine_operators::error::Error> {
         let time = match (vector_spec.start_time.clone(), vector_spec.end_time.clone()) {
             (Some(start_time), None) => OgrSourceDatasetTimeType::Start {
                 start_field: start_time,
@@ -677,12 +720,10 @@ impl EdrCollectionMetaData {
             _ => OgrSourceDatasetTimeType::None,
         };
 
-        OgrSourceDataset {
+        Ok(OgrSourceDataset {
             file_name: PathBuf::from(template_url),
             layer_name: layer_name.to_string(),
-            data_type: self
-                .determine_vector_data_type(template_url)
-                .ok(),
+            data_type: Some(data_type),
             time,
             default_geometry: None,
             columns: Some(self.get_column_spec(vector_spec)),
@@ -692,7 +733,7 @@ impl EdrCollectionMetaData {
             sql_query: None,
             attribute_query: None,
             cache_ttl,
-        }
+        })
     }
 
     fn get_ogr_metadata(
@@ -702,14 +743,18 @@ impl EdrCollectionMetaData {
         vector_spec: EdrVectorSpec,
         cache_ttl: CacheTtlSeconds,
         discrete_vrs: &[String],
-    ) -> Result<EdrMetaData<OgrSourceDataset, VectorResultDescriptor, VectorQueryRectangle>> {
+    ) -> Result<
+        EdrMetaData<OgrSourceDataset, VectorResultDescriptor, VectorQueryRectangle>,
+        geoengine_operators::error::Error,
+    > {
         let (template_url, layer_name) =
             self.get_vector_template_url(base_url, height, discrete_vrs)?;
-        let omd = self.get_ogr_source_ds(&template_url, &layer_name, vector_spec, cache_ttl);
+        let data_type = self.determine_vector_data_type(&template_url)?;
+        let omd = self.get_ogr_source_ds(&template_url, &layer_name, vector_spec, cache_ttl, data_type)?;
 
         Ok(EdrMetaData {
             loading_info: omd,
-            result_descriptor: self.get_vector_result_descriptor(&template_url)?,
+            result_descriptor: self.get_vector_result_descriptor(data_type)?,
             template_url,
             phantom: Default::default(),
         })
@@ -717,12 +762,13 @@ impl EdrCollectionMetaData {
 
     fn get_raster_result_descriptor(
         &self,
+        info: &DetectedRasterInfo,
     ) -> Result<RasterResultDescriptor, geoengine_operators::error::Error> {
         let bbox = self.get_bounding_box()?;
         let bbox = SpatialPartition2D::new_unchecked(bbox.upper_left(), bbox.lower_right());
 
         Ok(RasterResultDescriptor {
-            data_type: RasterDataType::U8,
+            data_type: info.data_type,
             spatial_reference: SpatialReference::epsg_4326().into(),
             time: Some(self.get_time_interval()?),
             bbox: Some(bbox),
@@ -733,37 +779,19 @@ impl EdrCollectionMetaData {
 
     fn get_gdal_loading_info_temporal_slice(
         &self,
-        provider: &EdrDataProvider,
-        parameter: &str,
-        height: &str,
+        template_url: &str,
         data_time: TimeInterval,
-        current_time: &str,
-        dataset: &Dataset,
+        info: &DetectedRasterInfo,
+        cache_ttl: CacheTtlSeconds,
     ) -> Result<GdalLoadingInfoTemporalSlice, geoengine_operators::error::Error> {
-        let rasterband = &dataset.rasterband(1)?;
-
         Ok(GdalLoadingInfoTemporalSlice {
             time: data_time,
             params: Some(GdalDatasetParameters {
-                file_path: self
-                    .get_raster_template_url(
-                        &provider.base_url,
-                        parameter,
-                        height,
-                        current_time,
-                        &provider.discrete_vrs,
-                    )?
-                    .into(),
+                file_path: template_url.into(),
                 rasterband_channel: 1,
-                geo_transform: dataset
-                    .geo_transform()
-                    .context(crate::error::Gdal)
-                    .map_err(|e| geoengine_operators::error::Error::LoadingInfo {
-                        source: Box::new(e),
-                    })?
-                    .into(),
-                width: rasterband.x_size(),
-                height: rasterband.y_size(),
+                geo_transform: info.geo_transform,
+                width: info.width,
+                height: info.height,
                 file_not_found_handling: FileNotFoundHandling::NoData,
                 no_data_value: None,
                 properties_mapping: None,
@@ -775,7 +803,85 @@ impl EdrCollectionMetaData {
                 allow_alphaband_as_mask: false,
                 retry: None,
             }),
-            cache_ttl: provider.cache_ttl,
+            cache_ttl,
+        })
+    }
+
+    fn get_gdal_source_ds(
+        &self,
+        template_url: &str,
+        info: &DetectedRasterInfo,
+        cache_ttl: CacheTtlSeconds,
+    ) -> Result<GdalLoadingInfo, geoengine_operators::error::Error> {
+        let mut parts: Vec<GdalLoadingInfoTemporalSlice> = Vec::new();
+
+        if let Some(temporal_extent) = self.extent.temporal.clone() {
+            let mut temporal_values_iter = temporal_extent.values.iter();
+            let mut previous_start = temporal_values_iter
+                .next()
+                // TODO: check if this could be unwrapped safely
+                .ok_or(
+                    geoengine_operators::error::Error::InvalidNumberOfTimeSteps {
+                        expected: 1,
+                        found: 0,
+                    },
+                )?;
+
+            for current_time in temporal_values_iter {
+                parts.push(self.get_gdal_loading_info_temporal_slice(
+                    template_url,
+                    time_interval_from_strings(previous_start, current_time)?,
+                    info,
+                    cache_ttl,
+                )?);
+                previous_start = current_time;
+            }
+            parts.push(self.get_gdal_loading_info_temporal_slice(
+                template_url,
+                time_interval_from_strings(previous_start, &temporal_extent.interval[0][1])?,
+                info,
+                cache_ttl,
+            )?);
+        } else {
+            parts.push(self.get_gdal_loading_info_temporal_slice(
+                template_url,
+                TimeInterval::default(),
+                info,
+                cache_ttl,
+            )?);
+        }
+
+        Ok(GdalLoadingInfo {
+            info: GdalLoadingInfoTemporalSliceIterator::Static {
+                parts: parts.into_iter(),
+            },
+        })
+    }
+
+    fn get_gdal_metadata(
+        &self,
+        base_url: &Url,
+        parameter_name: &str,
+        height: &str,
+        cache_ttl: CacheTtlSeconds,
+        discrete_vrs: &[String],
+    ) -> Result<EdrMetaData<GdalLoadingInfo, RasterResultDescriptor, RasterQueryRectangle>> {
+        // reverts the thread local configs on drop
+        let _thread_local_configs = TemporaryGdalThreadLocalConfigOptions::new(&[(
+            "GTIFF_HONOUR_NEGATIVE_SCALEY".to_string(),
+            "YES".to_string(),
+        )])?;
+
+        let template_url =
+            self.get_raster_template_url(base_url, parameter_name, height, discrete_vrs)?;
+        let info = DetectedRasterInfo::new(self, &template_url)?;
+        let omd = self.get_gdal_source_ds(&template_url, &info, cache_ttl)?;
+
+        Ok(EdrMetaData {
+            loading_info: omd,
+            result_descriptor: self.get_raster_result_descriptor(&info)?,
+            template_url,
+            phantom: Default::default(),
         })
     }
 }
@@ -836,8 +942,7 @@ enum EdrSymbol {
 impl EdrSymbol {
     fn value(&self) -> String {
         match self {
-            EdrSymbol::Scalar(value) => value,
-            EdrSymbol::Object { value } => value,
+            EdrSymbol::Scalar(value) | EdrSymbol::Object { value } => value,
         }
         .clone()
     }
@@ -944,28 +1049,48 @@ impl TryFrom<EdrCollectionId> for LayerId {
     }
 }
 
-trait EdrQueryGenerator
-{
-    fn as_query_string(&self) -> String
-    where
-        Self: Sized;
+trait EdrQueryGenerator {
+    fn as_query_string(&self) -> String;
+    //where
+    //Self: Sized;
 }
 
 impl EdrQueryGenerator for VectorQueryRectangle {
-    fn as_query_string(&self) -> String
-    where
-        Self: Sized,
-    {
+    fn as_query_string(&self) -> String {
         let start: String = self
             .time_interval
             .start()
             .as_datetime_string()
-            .replace("+", "%2B");
+            .replace('+', "%2B");
         let end = self
             .time_interval
             .end()
             .as_datetime_string()
-            .replace("+", "%2B");
+            .replace('+', "%2B");
+        format!(
+            "&bbox={},{},{},{}&datetime={}%2F{}",
+            self.spatial_bounds.lower_left().x,
+            self.spatial_bounds.lower_left().y,
+            self.spatial_bounds.upper_right().x,
+            self.spatial_bounds.upper_left().y,
+            start,
+            end
+        )
+    }
+}
+
+impl EdrQueryGenerator for RasterQueryRectangle {
+    fn as_query_string(&self) -> String {
+        let start: String = self
+            .time_interval
+            .start()
+            .as_datetime_string()
+            .replace('+', "%2B");
+        let end = self
+            .time_interval
+            .end()
+            .as_datetime_string()
+            .replace('+', "%2B");
         format!(
             "&bbox={},{},{},{}&datetime={}%2F{}",
             self.spatial_bounds.lower_left().x,
@@ -985,12 +1110,12 @@ trait EdrLoadingInfoUpdate {
 impl EdrLoadingInfoUpdate for OgrSourceDataset {
     fn with_new_query_string(&self, template_url: &str, query_string: &str) -> Self {
         let new_file_name = PathBuf::from(template_url.to_owned() + query_string);
-        let mut new_layer_name = self.layer_name.clone() + &query_string;
+        let mut new_layer_name = self.layer_name.clone() + query_string;
         if let Some(last_dot_pos) = new_layer_name.rfind('.') {
             new_layer_name = new_layer_name[0..last_dot_pos].to_string();
         }
 
-        Self {
+        OgrSourceDataset {
             file_name: new_file_name,
             layer_name: new_layer_name,
             data_type: self.data_type,
@@ -1007,9 +1132,34 @@ impl EdrLoadingInfoUpdate for OgrSourceDataset {
     }
 }
 
+impl EdrLoadingInfoUpdate for GdalLoadingInfo {
+    fn with_new_query_string(&self, template_url: &str, query_string: &str) -> Self {
+        let new_file_name = PathBuf::from(template_url.to_owned() + query_string);
+        let mut new_parts = Vec::new();
+        
+        for slice in self.info.clone() {
+            let slice = slice.expect("alwas ok for static iterator");
+            let params = slice.params.expect("always set by edr provider");
+            new_parts.push(GdalLoadingInfoTemporalSlice {
+                time: slice.time,
+                params: Some(GdalDatasetParameters {
+                    file_path: new_file_name.clone(),
+                    ..params
+                }),
+                cache_ttl: slice.cache_ttl,
+            });
+        }
+
+        GdalLoadingInfo {
+            info: GdalLoadingInfoTemporalSliceIterator::Static {
+                parts: new_parts.into_iter(),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
-struct EdrMetaData<L, R, Q>
-{
+struct EdrMetaData<L, R, Q> {
     pub loading_info: L,
     pub result_descriptor: R,
     pub template_url: String,
@@ -1024,9 +1174,10 @@ where
     Q: Debug + Clone + Send + Sync + EdrQueryGenerator + 'static,
 {
     async fn loading_info(&self, query: Q) -> geoengine_operators::util::Result<L> {
-        //self.loading_info.new_link(&self.template_url, query)
         let query_string = query.as_query_string();
-        Ok(self.loading_info.with_new_query_string(&self.template_url, &query_string))
+        Ok(self
+            .loading_info
+            .with_new_query_string(&self.template_url, &query_string))
     }
 
     async fn result_descriptor(&self) -> geoengine_operators::util::Result<R> {
@@ -1212,17 +1363,13 @@ impl MetaDataProvider<OgrSourceDataset, VectorResultDescriptor, VectorQueryRecta
             _ => unreachable!(),
         };
 
-        let smd = collection
-            .get_ogr_metadata(
-                &self.base_url,
-                &height,
-                vector_spec,
-                self.cache_ttl,
-                &self.discrete_vrs,
-            )
-            .map_err(|e| geoengine_operators::error::Error::LoadingInfo {
-                source: Box::new(e),
-            })?;
+        let smd = collection.get_ogr_metadata(
+            &self.base_url,
+            &height,
+            vector_spec,
+            self.cache_ttl,
+            &self.discrete_vrs,
+        )?;
 
         Ok(Box::new(smd))
     }
@@ -1251,82 +1398,19 @@ impl MetaDataProvider<GdalLoadingInfo, RasterResultDescriptor, RasterQueryRectan
             _ => unreachable!(),
         };
 
-        let mut params: Vec<GdalLoadingInfoTemporalSlice> = Vec::new();
-        // reverts the thread local configs on drop
-        let _thread_local_configs = TemporaryGdalThreadLocalConfigOptions::new(&[(
-            "GTIFF_HONOUR_NEGATIVE_SCALEY".to_string(),
-            "YES".to_string(),
-        )])?;
-
-        if let Some(temporal_extent) = collection.extent.temporal.clone() {
-            let mut temporal_values_iter = temporal_extent.values.iter();
-            let mut previous_start = temporal_values_iter
-                .next()
-                // TODO: check if this could be unwrapped safely
-                .ok_or(
-                    geoengine_operators::error::Error::InvalidNumberOfTimeSteps {
-                        expected: 1,
-                        found: 0,
-                    },
-                )?;
-            let dataset = gdal_open_dataset(
-                collection
-                    .get_raster_template_url(
-                        &self.base_url,
-                        &parameter,
-                        &height,
-                        previous_start,
-                        &self.discrete_vrs,
-                    )?
-                    .as_ref(),
-            )?;
-
-            for current_time in temporal_values_iter {
-                params.push(collection.get_gdal_loading_info_temporal_slice(
-                    self,
-                    &parameter,
-                    &height,
-                    time_interval_from_strings(previous_start, current_time)?,
-                    previous_start,
-                    &dataset,
-                )?);
-                previous_start = current_time;
-            }
-            params.push(collection.get_gdal_loading_info_temporal_slice(
-                self,
+        let smd = collection
+            .get_gdal_metadata(
+                &self.base_url,
                 &parameter,
                 &height,
-                time_interval_from_strings(previous_start, &temporal_extent.interval[0][1])?,
-                previous_start,
-                &dataset,
-            )?);
-        } else {
-            let dummy_time = "2023-06-06T00:00:00Z";
-            let dataset = gdal_open_dataset(
-                collection
-                    .get_raster_template_url(
-                        &self.base_url,
-                        &parameter,
-                        &height,
-                        dummy_time,
-                        &self.discrete_vrs,
-                    )?
-                    .as_ref(),
-            )?;
-            params.push(collection.get_gdal_loading_info_temporal_slice(
-                self,
-                &parameter,
-                &height,
-                TimeInterval::default(),
-                dummy_time,
-                &dataset,
-            )?);
-        }
+                self.cache_ttl,
+                &self.discrete_vrs,
+            )
+            .map_err(|e| geoengine_operators::error::Error::LoadingInfo {
+                source: Box::new(e),
+            })?;
 
-        Ok(Box::new(GdalMetaDataList {
-            result_descriptor: collection.get_raster_result_descriptor()?,
-            params,
-        }))
+        Ok(Box::new(smd))
     }
 }
 
@@ -1414,7 +1498,8 @@ mod tests {
         times: Range<usize>,
     ) {
         let path = test_data_path(file_name);
-        let body = tokio::fs::read(path).await.unwrap();
+        let body = tokio::fs::read(path.clone()).await.unwrap();
+        println!("on url \"{}\" return file at \"{}\" of type {}", url, path.display(), content_type);
 
         let responder = status_code(200)
             .append_header("content-type", content_type.to_owned())
@@ -1428,21 +1513,22 @@ mod tests {
         );
     }
 
-    async fn prepare_cube_query(
+    async fn setup_query_endpoint(
         server: &mut Server,
         collection_name: &str,
+        endpoint: &str,
         content_type: &str,
         file_name: &str,
     ) {
-        let url = format!("/collections/{collection_name}/cube");
+        let url = format!("/collections/{collection_name}/{endpoint}");
 
-        setup_url(server, &url, content_type, file_name, 2..5).await;
+        setup_url(server, &url, content_type, file_name, 2..17).await;
         server.expect(
             Expectation::matching(all_of![
                 request::method_path("HEAD", url),
-                request::query(url_decoded(contains(value(matches("\\.aux(\\.xml)?$"))))),
+                request::query(url_decoded(contains(value(matches("\\.(aux(\\.xml)?|ovr|OVR|msk|MSK)$"))))),
             ])
-            .times(0..2)
+            .times(0..12)
             .respond_with(status_code(404)),
         );
     }
@@ -1796,7 +1882,6 @@ mod tests {
             }))
             .await
             .unwrap();
-        server.verify_and_clear();
         meta
     }
 
@@ -1804,9 +1889,10 @@ mod tests {
     async fn generate_ogr_metadata(app_ctx: PostgresContext<NoTls>) {
         let mut server = Server::run();
 
-        prepare_cube_query(
+        setup_query_endpoint(
             &mut server,
             "PointsInGermany",
+            "items",
             "application/geo+json",
             "edr_vector.json",
         )
@@ -1822,6 +1908,7 @@ mod tests {
             app_ctx.default_session_context().await.unwrap().db(),
         )
         .await;
+        server.verify_and_clear();
         let loading_info = meta
             .loading_info(VectorQueryRectangle {
                 spatial_bounds: BoundingBox2D::new_unchecked(
@@ -1898,9 +1985,10 @@ mod tests {
     async fn generate_gdal_metadata(app_ctx: PostgresContext<NoTls>) {
         let mut server = Server::run();
 
-        prepare_cube_query(
+        setup_query_endpoint(
             &mut server,
             "GFS_isobaric",
+            "cube",
             "image/tiff",
             "edr_raster.tif",
         )
@@ -1916,7 +2004,7 @@ mod tests {
             app_ctx.default_session_context().await.unwrap().db(),
         )
         .await;
-
+        server.verify_and_clear();
         let loading_info_parts = meta
             .loading_info(RasterQueryRectangle {
                 spatial_bounds: SpatialPartition2D::new_unchecked(
@@ -1940,7 +2028,7 @@ mod tests {
                         1_692_144_000_000, 1_692_154_800_000
                     ),
                     params: Some(GdalDatasetParameters {
-                        file_path: format!("/vsicurl_streaming/{}", server.url_str("/collections/GFS_isobaric/cube?bbox=0,-90,359.50000000000006,90&z=1000%2F1000&datetime=2023-08-16T00:00:00Z%2F2023-08-16T00:00:00Z&f=GeoTIFF&parameter-name=temperature")).into(),
+                        file_path: format!("/vsicurl_streaming/{}", server.url_str("/collections/GFS_isobaric/cube?f=GeoTIFF&parameter-name=temperature&z=1000%2F1000&bbox=0,-90,360,90&datetime=2023-08-16T00:00:00%2B00:00%2F2023-08-20T03:00:00%2B00:00")).into(),
                         rasterband_channel: 1,
                         geo_transform: GdalDatasetGeoTransform {
                             origin_coordinate: (0., -90.).into(),
@@ -1967,7 +2055,7 @@ mod tests {
                         1_692_154_800_000, 1_692_500_400_000
                     ),
                     params: Some(GdalDatasetParameters {
-                        file_path: format!("/vsicurl_streaming/{}", server.url_str("/collections/GFS_isobaric/cube?bbox=0,-90,359.50000000000006,90&z=1000%2F1000&datetime=2023-08-16T03:00:00Z%2F2023-08-16T03:00:00Z&f=GeoTIFF&parameter-name=temperature")).into(),
+                        file_path: format!("/vsicurl_streaming/{}", server.url_str("/collections/GFS_isobaric/cube?f=GeoTIFF&parameter-name=temperature&z=1000%2F1000&bbox=0,-90,360,90&datetime=2023-08-16T00:00:00%2B00:00%2F2023-08-20T03:00:00%2B00:00")).into(),
                         rasterband_channel: 1,
                         geo_transform: GdalDatasetGeoTransform {
                             origin_coordinate: (0., -90.).into(),
@@ -2018,9 +2106,10 @@ mod tests {
 
         let mut server = Server::run();
 
-        prepare_cube_query(
+        setup_query_endpoint(
             &mut server,
             "GFS_isobaric",
+            "cube",
             "image/tiff",
             "edr_raster.tif",
         )
@@ -2043,8 +2132,7 @@ mod tests {
             DataId::External(ExternalDataId {
                 provider_id: DEMO_PROVIDER_ID,
                 layer_id: LayerId(layer_id.to_owned()),
-            })
-            .into(),
+            }),
             geoengine_datatypes::dataset::NamedData::with_system_provider(
                 DEMO_PROVIDER_ID.to_string(),
                 layer_id.to_string(),
@@ -2081,6 +2169,8 @@ mod tests {
 
         let tile_stream = processor.query(query, &ctx).await?;
         assert_eq!(tile_stream.count().await, 2);
+
+        server.verify_and_clear();
 
         Ok(())
     }

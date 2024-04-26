@@ -1231,7 +1231,7 @@
           }
         },
         "data_queries": {
-          "cube": {
+          "cube": {"link": {
             "href": "https://dbs-demo.mathematik.uni-marburg.de/dev/cep/edr/collections/PointsInGermany/cube",
             "rel": "data",
             "variables": {
@@ -1249,7 +1249,7 @@
                 }
               ]
             }
-          }
+          }}
         },
         "crs": [
           "EPSG:4326"
@@ -1323,7 +1323,7 @@
           }
         },
         "data_queries": {
-          "cube": {
+          "cube": {"link": {
             "href": "https://dbs-demo.mathematik.uni-marburg.de/dev/cep/edr/collections/PointsInFrance/cube",
             "rel": "data",
             "variables": {
@@ -1341,7 +1341,7 @@
                 }
               ]
             }
-          }
+          }}
         },
         "crs": [
           "EPSG:4326"

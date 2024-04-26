@@ -16,10 +16,10 @@
         "spatial": {
             "bbox": [
                 [
-                    -180.0,
-                    -90.0,
-                    180.0,
-                    90.0
+                    -180,
+                    -90,
+                    180,
+                    90
                 ]
             ],
             "crs": "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4326\"]]"
@@ -52,22 +52,24 @@
     },
     "data_queries": {
         "cube": {
-            "href": "https://dbs-demo.mathematik.uni-marburg.de/dev/cep/edr/collections/PointsInFrance/cube",
-            "rel": "data",
-            "variables": {
-                "title": "PointsInFrance",
-                "description": "SELECT * FROM GeoStream2",
-                "query_type": "cube",
-                "output_formats": [
-                    "GeoJSON"
-                ],
-                "default_output_format": "GeoJSON",
-                "crs_details": [
-                    {
-                        "crs": "EPSG:4326",
-                        "wkt": "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4326\"]]"
-                    }
-                ]
+            "link": {
+                "href": "https://dbs-demo.mathematik.uni-marburg.de/dev/cep/edr/collections/PointsInFrance/cube",
+                "rel": "data",
+                "variables": {
+                    "title": "PointsInFrance",
+                    "description": "SELECT * FROM GeoStream2",
+                    "query_type": "cube",
+                    "output_formats": [
+                        "GeoJSON"
+                    ],
+                    "default_output_format": "GeoJSON",
+                    "crs_details": [
+                        {
+                            "crs": "EPSG:4326",
+                            "wkt": "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4326\"]]"
+                        }
+                    ]
+                }
             }
         }
     },

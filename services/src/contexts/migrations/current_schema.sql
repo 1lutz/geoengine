@@ -731,7 +731,8 @@ CREATE TYPE "PangaeaDataProviderDefinition" AS (
 CREATE TYPE "EdrVectorSpec" AS (
     x text,
     y text,
-    "time" text
+    "start_time" text,
+    "end_time" text
 );
 
 CREATE TYPE "EdrDataProviderDefinition" AS (
