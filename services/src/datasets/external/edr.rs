@@ -17,7 +17,7 @@ use geoengine_datatypes::collections::VectorDataType;
 use geoengine_datatypes::dataset::{DataId, DataProviderId, LayerId};
 use geoengine_datatypes::hashmap;
 use geoengine_datatypes::primitives::{
-    AxisAlignedRectangle, BandSelection, BoundingBox2D, CacheTtlSeconds, ContinuousMeasurement, Coordinate2D, FeatureDataType, Measurement, RasterQueryRectangle, SpatialPartition2D, SpatialResolution, TimeInstance, TimeInterval, VectorQueryRectangle
+    AxisAlignedRectangle, BandSelection, BoundingBox2D, CacheTtlSeconds, ContinuousMeasurement, Coordinate2D, FeatureDataType, Measurement, QueryAttributeSelection, QueryRectangle, RasterQueryRectangle, SpatialPartition2D, SpatialResolution, TimeInstance, TimeInterval, VectorQueryRectangle
 };
 use geoengine_datatypes::raster::RasterDataType;
 use geoengine_datatypes::spatial_reference::SpatialReference;
@@ -448,18 +448,8 @@ struct DetectedRasterInfo {
 }
 
 impl DetectedRasterInfo {
-    fn new(collection: &EdrCollectionMetaData, template_url: &str) -> Result<DetectedRasterInfo, geoengine_operators::error::Error> {
-        let coords_ul = collection.get_bounding_box()?.upper_left();
-        let coords_lr = coords_ul + Coordinate2D::new(0.5, -0.5);
-        let time = collection.get_time_interval()?.start();
-        let query = RasterQueryRectangle {
-            spatial_bounds: SpatialPartition2D::new_unchecked(coords_ul, coords_lr),
-            time_interval: TimeInterval::new_unchecked(time, time),
-            spatial_resolution: SpatialResolution::new_unchecked(1., 1.),
-            attributes: BandSelection::first(),
-        };
-        let position_url = template_url.to_owned() + query.as_query_string().as_str();
-        let dataset = gdal_open_dataset(Path::new(&position_url))?;
+    fn new_for_subset(full_dataset_url: &str) -> Result<DetectedRasterInfo, geoengine_operators::error::Error> {
+        let dataset = gdal_open_dataset(Path::new(&full_dataset_url))?;
         let rasterband = dataset.rasterband(1)?;
 
         Ok(Self {
@@ -468,6 +458,19 @@ impl DetectedRasterInfo {
             width: rasterband.x_size(),
             height: rasterband.y_size(),
         })
+    }
+
+    fn new_for_whole(collection: &EdrCollectionMetaData, template_url: &str) -> Result<DetectedRasterInfo, geoengine_operators::error::Error> {
+        let bbox = collection.get_bounding_box()?;
+        let time = collection.get_time_interval()?.start();
+        let query = RasterQueryRectangle {
+            spatial_bounds: SpatialPartition2D::new_unchecked(bbox.upper_left(), bbox.lower_right()),
+            time_interval: TimeInterval::new_unchecked(time, time),
+            spatial_resolution: SpatialResolution::new_unchecked(1., 1.),
+            attributes: BandSelection::first(),
+        };
+        let full_url = template_url.to_owned() + query.as_query_string().as_str();
+        Self::new_for_subset(&full_url)
     }
 }
 
@@ -874,7 +877,7 @@ impl EdrCollectionMetaData {
 
         let template_url =
             self.get_raster_template_url(base_url, parameter_name, height, discrete_vrs)?;
-        let info = DetectedRasterInfo::new(self, &template_url)?;
+        let info = DetectedRasterInfo::new_for_whole(self, &template_url)?;
         let omd = self.get_gdal_source_ds(&template_url, &info, cache_ttl)?;
 
         Ok(EdrMetaData {
@@ -1051,11 +1054,11 @@ impl TryFrom<EdrCollectionId> for LayerId {
 
 trait EdrQueryGenerator {
     fn as_query_string(&self) -> String;
-    //where
-    //Self: Sized;
+
+    fn get_time_interval(&self) -> TimeInterval;
 }
 
-impl EdrQueryGenerator for VectorQueryRectangle {
+impl<SpatialBounds: AxisAlignedRectangle, AttributeSelection: QueryAttributeSelection> EdrQueryGenerator for QueryRectangle<SpatialBounds, AttributeSelection> {
     fn as_query_string(&self) -> String {
         let start: String = self
             .time_interval
@@ -1077,40 +1080,21 @@ impl EdrQueryGenerator for VectorQueryRectangle {
             end
         )
     }
-}
 
-impl EdrQueryGenerator for RasterQueryRectangle {
-    fn as_query_string(&self) -> String {
-        let start: String = self
-            .time_interval
-            .start()
-            .as_datetime_string()
-            .replace('+', "%2B");
-        let end = self
-            .time_interval
-            .end()
-            .as_datetime_string()
-            .replace('+', "%2B");
-        format!(
-            "&bbox={},{},{},{}&datetime={}%2F{}",
-            self.spatial_bounds.lower_left().x,
-            self.spatial_bounds.lower_left().y,
-            self.spatial_bounds.upper_right().x,
-            self.spatial_bounds.upper_left().y,
-            start,
-            end
-        )
+    fn get_time_interval(&self) -> TimeInterval {
+        self.time_interval
     }
 }
 
 trait EdrLoadingInfoUpdate {
-    fn with_new_query_string(&self, template_url: &str, query_string: &str) -> Self;
+    fn with_new_query<T: EdrQueryGenerator>(&self, template_url: &str, query: &T) -> Self;
 }
 
 impl EdrLoadingInfoUpdate for OgrSourceDataset {
-    fn with_new_query_string(&self, template_url: &str, query_string: &str) -> Self {
-        let new_file_name = PathBuf::from(template_url.to_owned() + query_string);
-        let mut new_layer_name = self.layer_name.clone() + query_string;
+    fn with_new_query<T: EdrQueryGenerator>(&self, template_url: &str, query: &T) -> Self {
+        let query_string = query.as_query_string();
+        let new_file_name = PathBuf::from(template_url.to_owned() + query_string.as_str());
+        let mut new_layer_name = self.layer_name.clone() + query_string.as_str();
         if let Some(last_dot_pos) = new_layer_name.rfind('.') {
             new_layer_name = new_layer_name[0..last_dot_pos].to_string();
         }
@@ -1133,18 +1117,35 @@ impl EdrLoadingInfoUpdate for OgrSourceDataset {
 }
 
 impl EdrLoadingInfoUpdate for GdalLoadingInfo {
-    fn with_new_query_string(&self, template_url: &str, query_string: &str) -> Self {
-        let new_file_name = PathBuf::from(template_url.to_owned() + query_string);
+    fn with_new_query<T: EdrQueryGenerator>(&self, template_url: &str, query: &T) -> Self {
+        let query_string = query.as_query_string();
+        let query_time = query.get_time_interval();
+        let new_file_name = template_url.to_owned() + query_string.as_str();
+        let info = DetectedRasterInfo::new_for_subset(&new_file_name).expect("always succeeds here because for whole dataset was okay");
         let mut new_parts = Vec::new();
         
         for slice in self.info.clone() {
             let slice = slice.expect("alwas ok for static iterator");
+
+            if !slice.time.intersects(&query_time) {
+                continue;
+            }
             let params = slice.params.expect("always set by edr provider");
             new_parts.push(GdalLoadingInfoTemporalSlice {
                 time: slice.time,
                 params: Some(GdalDatasetParameters {
-                    file_path: new_file_name.clone(),
-                    ..params
+                    file_path: new_file_name.clone().into(),
+                    rasterband_channel: 1,
+                    geo_transform: info.geo_transform,
+                    width: info.width,
+                    height: info.height,
+                    file_not_found_handling: params.file_not_found_handling,
+                    no_data_value: params.no_data_value,
+                    properties_mapping: params.properties_mapping,
+                    gdal_open_options: params.gdal_open_options,
+                    gdal_config_options: params.gdal_config_options,
+                    allow_alphaband_as_mask: params.allow_alphaband_as_mask,
+                    retry: params.retry,
                 }),
                 cache_ttl: slice.cache_ttl,
             });
@@ -1174,10 +1175,9 @@ where
     Q: Debug + Clone + Send + Sync + EdrQueryGenerator + 'static,
 {
     async fn loading_info(&self, query: Q) -> geoengine_operators::util::Result<L> {
-        let query_string = query.as_query_string();
         Ok(self
             .loading_info
-            .with_new_query_string(&self.template_url, &query_string))
+            .with_new_query(&self.template_url, &query))
     }
 
     async fn result_descriptor(&self) -> geoengine_operators::util::Result<R> {
