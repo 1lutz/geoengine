@@ -701,10 +701,8 @@ where
             .tiling_specification
             .strategy(pixel_size_x, pixel_size_y);
 
-        let result_descriptor = self.meta_data.result_descriptor().await?;
-
         let mut empty = false;
-        debug!("result descr bbox: {:?}", result_descriptor.bbox);
+        debug!("result descr bbox: {:?}", self.result_descriptor.bbox);
         debug!("query bbox: {:?}", query.spatial_bounds);
 
         if let Some(data_spatial_bounds) = result_descriptor.bbox {
