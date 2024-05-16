@@ -114,7 +114,7 @@ impl RasterBandDescriptors {
         Ok(Self(bands))
     }
 
-    /// Convenience method to crate a single band result descriptor with no specific name and a unitless measurement for single band rasters
+    /// Convenience method to create a single band result descriptor with no specific name and a unitless measurement for single band rasters
     pub fn new_single_band() -> Self {
         Self(vec![RasterBandDescriptor {
             name: "band".into(),
