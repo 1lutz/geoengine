@@ -24,6 +24,7 @@ use geoengine_datatypes::primitives::{
 };
 use geoengine_datatypes::raster::RasterDataType;
 use geoengine_datatypes::spatial_reference::SpatialReference;
+use geoengine_datatypes::util::test::TestDefault;
 use geoengine_operators::engine::{
     MetaData, MetaDataProvider, RasterBandDescriptors, RasterOperator, RasterResultDescriptor,
     ResultDescriptor, TypedOperator, VectorColumnInfo, VectorOperator, VectorResultDescriptor,
@@ -460,10 +461,16 @@ impl DetectedRasterInfo {
         full_dataset_url: &str,
     ) -> Result<DetectedRasterInfo, geoengine_operators::error::Error> {
         // reverts the thread local configs on drop
-        let _thread_local_configs = TemporaryGdalThreadLocalConfigOptions::new(&[(
-            "GTIFF_HONOUR_NEGATIVE_SCALEY".to_string(),
-            "YES".to_string(),
-        )])?;
+        let _thread_local_configs = TemporaryGdalThreadLocalConfigOptions::new(&[
+            (
+                "GTIFF_HONOUR_NEGATIVE_SCALEY".to_string(),
+                "YES".to_string(),
+            ),
+            (
+                "GDAL_DISABLE_READDIR_ON_OPEN".to_string(),
+                "EMPTY_DIR".to_string(),
+            )
+        ])?;
 
         let dataset = gdal_open_dataset(Path::new(&full_dataset_url))?;
         let rasterband = dataset.rasterband(1)?;
@@ -815,7 +822,6 @@ impl EdrCollectionMetaData {
     fn get_gdal_loading_info_temporal_slice(
         template_url: &str,
         data_time: TimeInterval,
-        info: &DetectedRasterInfo,
         cache_ttl: CacheTtlSeconds,
     ) -> GdalLoadingInfoTemporalSlice {
         GdalLoadingInfoTemporalSlice {
@@ -823,17 +829,24 @@ impl EdrCollectionMetaData {
             params: Some(GdalDatasetParameters {
                 file_path: template_url.into(),
                 rasterband_channel: 1,
-                geo_transform: info.geo_transform,
-                width: info.width,
-                height: info.height,
+                // geo_transform, width, height get set later by EdrMetaData
+                geo_transform: GdalDatasetGeoTransform::test_default(),
+                width: 42,
+                height: 42,
                 file_not_found_handling: FileNotFoundHandling::NoData,
                 no_data_value: None,
                 properties_mapping: None,
                 gdal_open_options: None,
-                gdal_config_options: Some(vec![(
-                    "GTIFF_HONOUR_NEGATIVE_SCALEY".to_string(),
-                    "YES".to_string(),
-                )]),
+                gdal_config_options: Some(vec![
+                    (
+                        "GTIFF_HONOUR_NEGATIVE_SCALEY".to_string(),
+                        "YES".to_string(),
+                    ),
+                    (
+                        "GDAL_DISABLE_READDIR_ON_OPEN".to_string(),
+                        "EMPTY_DIR".to_string(),
+                    )
+                ]),
                 allow_alphaband_as_mask: false,
                 retry: None,
             }),
@@ -844,7 +857,6 @@ impl EdrCollectionMetaData {
     fn get_gdal_source_ds(
         &self,
         template_url: &str,
-        info: &DetectedRasterInfo,
         cache_ttl: CacheTtlSeconds,
     ) -> Result<GdalLoadingInfo, geoengine_operators::error::Error> {
         let mut parts: Vec<GdalLoadingInfoTemporalSlice> = Vec::new();
@@ -865,7 +877,6 @@ impl EdrCollectionMetaData {
                 parts.push(Self::get_gdal_loading_info_temporal_slice(
                     template_url,
                     time_interval_from_strings(previous_start, current_time)?,
-                    info,
                     cache_ttl,
                 ));
                 previous_start = current_time;
@@ -873,14 +884,12 @@ impl EdrCollectionMetaData {
             parts.push(Self::get_gdal_loading_info_temporal_slice(
                 template_url,
                 time_interval_from_strings(previous_start, &temporal_extent.interval[0][1])?,
-                info,
                 cache_ttl,
             ));
         } else {
             parts.push(Self::get_gdal_loading_info_temporal_slice(
                 template_url,
                 TimeInterval::default(),
-                info,
                 cache_ttl,
             ));
         }
@@ -903,7 +912,7 @@ impl EdrCollectionMetaData {
         let template_url =
             self.get_raster_template_url(base_url, parameter_name, height, discrete_vrs)?;
         let info = DetectedRasterInfo::new_from_template_url(self, &template_url)?;
-        let omd = self.get_gdal_source_ds(&template_url, &info, cache_ttl)?;
+        let omd = self.get_gdal_source_ds(&template_url, cache_ttl)?;
 
         Ok(EdrMetaData {
             loading_info: omd,
@@ -1550,17 +1559,7 @@ mod tests {
     ) {
         let url = format!("/collections/{collection_name}/{endpoint}");
 
-        setup_url(server, &url, content_type, file_name, 2..17).await;
-        server.expect(
-            Expectation::matching(all_of![
-                request::method_path("HEAD", url),
-                request::query(url_decoded(contains(value(matches(
-                    "\\.(aux(\\.xml)?|ovr|OVR|msk|MSK)$"
-                ))))),
-            ])
-            .times(0..12)
-            .respond_with(status_code(404)),
-        );
+        setup_url(server, &url, content_type, file_name, 1..17).await;
     }
 
     async fn load_layer_collection<D: GeoEngineDb>(
@@ -2058,7 +2057,7 @@ mod tests {
                         1_692_144_000_000, 1_692_154_800_000
                     ),
                     params: Some(GdalDatasetParameters {
-                        file_path: format!("/vsicurl_streaming/{}", server.url_str("/collections/GFS_isobaric/cube?f=GeoTIFF&parameter-name=temperature&z=1000%2F1000&bbox=0,-90,360,90&datetime=2023-08-16T00:00:00%2B00:00%2F2023-08-20T03:00:00%2B00:00")).into(),
+                        file_path: format!("/vsicurl_streaming/{}", server.url_str("/collections/GFS_isobaric/cube?f=GeoTIFF&parameter-name=temperature&z=1000%2F1000&bbox=0,-90,360,90&datetime=2023-08-16T00:00:00%2B00:00%2F2023-08-16T03:00:00%2B00:00")).into(),
                         rasterband_channel: 1,
                         geo_transform: GdalDatasetGeoTransform {
                             origin_coordinate: (0., -90.).into(),
@@ -2074,6 +2073,10 @@ mod tests {
                         gdal_config_options: Some(vec![(
                             "GTIFF_HONOUR_NEGATIVE_SCALEY".to_string(),
                             "YES".to_string(),
+                        ),
+                        (
+                            "GDAL_DISABLE_READDIR_ON_OPEN".to_string(),
+                            "EMPTY_DIR".to_string()
                         )]),
                         allow_alphaband_as_mask: false,
                         retry: None,
@@ -2085,7 +2088,7 @@ mod tests {
                         1_692_154_800_000, 1_692_500_400_000
                     ),
                     params: Some(GdalDatasetParameters {
-                        file_path: format!("/vsicurl_streaming/{}", server.url_str("/collections/GFS_isobaric/cube?f=GeoTIFF&parameter-name=temperature&z=1000%2F1000&bbox=0,-90,360,90&datetime=2023-08-16T00:00:00%2B00:00%2F2023-08-20T03:00:00%2B00:00")).into(),
+                        file_path: format!("/vsicurl_streaming/{}", server.url_str("/collections/GFS_isobaric/cube?f=GeoTIFF&parameter-name=temperature&z=1000%2F1000&bbox=0,-90,360,90&datetime=2023-08-16T03:00:00%2B00:00%2F2023-08-20T03:00:00%2B00:00")).into(),
                         rasterband_channel: 1,
                         geo_transform: GdalDatasetGeoTransform {
                             origin_coordinate: (0., -90.).into(),
@@ -2101,6 +2104,9 @@ mod tests {
                         gdal_config_options: Some(vec![(
                             "GTIFF_HONOUR_NEGATIVE_SCALEY".to_string(),
                             "YES".to_string(),
+                        ), (
+                            "GDAL_DISABLE_READDIR_ON_OPEN".to_string(),
+                            "EMPTY_DIR".to_string()
                         )]),
                         allow_alphaband_as_mask: false,
                         retry: None,
