@@ -1,6 +1,8 @@
 use crate::{
     collections::FeatureCollectionError,
-    primitives::{BoundingBox2D, Coordinate2D, PrimitivesError, TimeInstance, TimeInterval},
+    primitives::{
+        BoundingBox2D, Coordinate2D, DateTimeError, PrimitivesError, TimeInstance, TimeInterval,
+    },
     raster::RasterDataType,
     spatial_reference::SpatialReference,
 };
@@ -247,6 +249,11 @@ pub enum Error {
         day: u32,
     },
 
+    #[snafu(display("Failed to parse datetime string: {:?}", source))]
+    DateTimeParsing {
+        source: DateTimeError,
+    },
+
     #[snafu(display(
         "The supplied spatial bounds are empty: {} {}",
         lower_left_coordinate,
@@ -377,5 +384,11 @@ impl From<gdal::errors::GdalError> for Error {
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
         Self::Io { source: e }
+    }
+}
+
+impl From<DateTimeError> for Error {
+    fn from(e: DateTimeError) -> Self {
+        Self::DateTimeParsing { source: e }
     }
 }

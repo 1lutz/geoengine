@@ -469,7 +469,7 @@ impl DetectedRasterInfo {
             (
                 "GDAL_DISABLE_READDIR_ON_OPEN".to_string(),
                 "EMPTY_DIR".to_string(),
-            )
+            ),
         ])?;
 
         let dataset = gdal_open_dataset(Path::new(&full_dataset_url))?;
@@ -845,7 +845,7 @@ impl EdrCollectionMetaData {
                     (
                         "GDAL_DISABLE_READDIR_ON_OPEN".to_string(),
                         "EMPTY_DIR".to_string(),
-                    )
+                    ),
                 ]),
                 allow_alphaband_as_mask: false,
                 retry: None,
@@ -1452,15 +1452,16 @@ impl MetaDataProvider<GdalLoadingInfo, RasterResultDescriptor, RasterQueryRectan
     }
 }
 
-// TODO: proper error handling
 #[allow(clippy::unnecessary_wraps)]
 fn time_interval_from_strings(
     start: &str,
     end: &str,
 ) -> Result<TimeInterval, geoengine_operators::error::Error> {
-    let start = TimeInstance::from_str(start).unwrap_or(TimeInstance::MIN);
-    let end = TimeInstance::from_str(end).unwrap_or(TimeInstance::MAX);
-    Ok(TimeInterval::new_unchecked(start, end))
+    let start =
+        TimeInstance::from_str(start).map_err(Into::<geoengine_datatypes::error::Error>::into)?;
+    let end =
+        TimeInstance::from_str(end).map_err(Into::<geoengine_datatypes::error::Error>::into)?;
+    TimeInterval::new(start, end).map_err(Into::into)
 }
 
 #[derive(Debug, Snafu)]
